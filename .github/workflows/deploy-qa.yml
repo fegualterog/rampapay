@@ -37,7 +37,7 @@ jobs:
         id: build
         run: |
           IMAGE=${{ env.ECR_REGISTRY }}/rampa-ebob-api:${{ github.sha }}
-          docker build -t "$IMAGE" -f api/Dockerfile .
+          docker build -t "$IMAGE" .
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
