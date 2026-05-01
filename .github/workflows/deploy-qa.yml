@@ -1,0 +1,156 @@
+name: Deploy to QA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION:   us-east-1
+  ECR_REGISTRY: 658424926180.dkr.ecr.us-east-1.amazonaws.com
+  ECS_CLUSTER:  rampa-ebob-qa-cluster
+  DEPLOY_ROLE:  arn:aws:iam::658424926180:role/rampa-ebob-qa-github-deploy-role
+
+jobs:
+
+  # ─── API ────────────────────────────────────────────────────────────────────
+  deploy-api:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push
+        id: build
+        run: |
+          IMAGE=${{ env.ECR_REGISTRY }}/rampa-ebob-api:${{ github.sha }}
+          docker build -t "$IMAGE" -f api/Dockerfile .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition rampa-ebob-qa-api \
+            --query taskDefinition --output json > task-def.json
+
+      - name: Render task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-def@v1
+        with:
+          task-definition: task-def.json
+          container-name: api
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-def@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: rampa-ebob-qa-api
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  # ─── Admin App ──────────────────────────────────────────────────────────────
+  deploy-admin:
+    name: Admin App
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push
+        id: build
+        run: |
+          IMAGE=${{ env.ECR_REGISTRY }}/rampa-ebob-admin:${{ github.sha }}
+          docker build -t "$IMAGE" -f admin/Dockerfile .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition rampa-ebob-qa-admin-app \
+            --query taskDefinition --output json > task-def.json
+
+      - name: Render task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-def@v1
+        with:
+          task-definition: task-def.json
+          container-name: admin-app
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-def@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: rampa-ebob-qa-admin-app
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  # ─── Co-signer ──────────────────────────────────────────────────────────────
+  deploy-cosigner:
+    name: Co-signer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push
+        id: build
+        run: |
+          IMAGE=${{ env.ECR_REGISTRY }}/rampa-ebob-cosigner:${{ github.sha }}
+          docker build -t "$IMAGE" -f cosigner/Dockerfile .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition rampa-ebob-qa-cosigner \
+            --query taskDefinition --output json > task-def.json
+
+      - name: Render task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-def@v1
+        with:
+          task-definition: task-def.json
+          container-name: cosigner
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-def@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: rampa-ebob-qa-cosigner
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
